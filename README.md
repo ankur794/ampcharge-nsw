@@ -9,6 +9,8 @@ the charging industry builds. Public data only.
 
 **[View the live interactive map »](https://ankur794.github.io/ampcharge-nsw/outputs/ampcharge_map.html)**
 
+[![White space map of NSW](outputs/map_preview.png)](https://ankur794.github.io/ampcharge-nsw/outputs/ampcharge_map.html)
+
 ## The short version
 
 The charging market clusters. New fast chargers are going in next to existing
