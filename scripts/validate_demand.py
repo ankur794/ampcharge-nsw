@@ -88,22 +88,39 @@ def main():
     t = t[t["ev_count"] > 0].reset_index(drop=True)
 
     # VALIDATION
-    X = t[["ev_count", "ev_share"]].values
     y = t["fast_chargers"].values
-    model = LinearRegression()
     kf = KFold(n_splits=5, shuffle=True, random_state=42)
-    y_cv = cross_val_predict(model, X, y, cv=kf)
-    r2_cv = r2_score(y, y_cv)
+
+    def cv_r2(cols):
+        return r2_score(y, cross_val_predict(LinearRegression(), t[cols].values, y, cv=kf))
+
+    r2_demand = cv_r2(["ev_count", "ev_share"])
     corr = np.corrcoef(t["ev_count"], t["fast_chargers"])[0, 1]
 
     print("\n=== VALIDATION: does EV demand predict industry charger placement? ===")
     print(f"  LGAs analysed: {len(t)}")
     print(f"  existing fast chargers: {int(y.sum())}")
     print(f"  correlation (EV count vs chargers): {corr:.3f}")
-    print(f"  cross-validated R^2 (held-out): {r2_cv:.3f}")
+    print(f"  cross-validated R^2 (demand): {r2_demand:.3f}")
 
-    model.fit(X, y)
-    t["predicted_chargers"] = model.predict(X)
+    # --- Control for the confounder: does demand predict BEYOND LGA size? ---
+    # total_vehicles is a stand-in for how big/populated an LGA is.
+    r2_size = cv_r2(["total_vehicles"])
+    r2_size_demand = cv_r2(["total_vehicles", "ev_count", "ev_share"])
+    # per-capita view: EV share vs chargers per 10k vehicles (size divided out)
+    t["chargers_per_10k"] = t["fast_chargers"] / t["total_vehicles"].clip(lower=1) * 1e4
+    corr_pc = np.corrcoef(t["ev_share"], t["chargers_per_10k"])[0, 1]
+
+    print("\n  -- controlling for LGA size (Gemini's confounder check) --")
+    print(f"  R^2 from LGA size alone:        {r2_size:.3f}")
+    print(f"  R^2 from size + EV demand:      {r2_size_demand:.3f}")
+    print(f"  EV demand's added power (dR^2):  {r2_size_demand - r2_size:+.3f}")
+    print(f"  per-capita correlation (EV share vs chargers per 10k vehicles): {corr_pc:.3f}")
+    print("  -> if the added power is positive, demand predicts charger placement")
+    print("     beyond just 'bigger areas have more of everything'.")
+
+    model = LinearRegression().fit(t[["ev_count", "ev_share"]].values, y)
+    t["predicted_chargers"] = model.predict(t[["ev_count", "ev_share"]].values)
     t["gap"] = t["predicted_chargers"] - t["fast_chargers"]
     t = t.sort_values("gap", ascending=False).reset_index(drop=True)
     t.to_csv(os.path.join(OUT, "lga_validation.csv"), index=False)
