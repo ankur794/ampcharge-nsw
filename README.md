@@ -1,6 +1,5 @@
 # Where should AmpCharge build its next EV chargers in NSW?
 
-[![tests](https://github.com/ankur794/ampcharge-nsw/actions/workflows/tests.yml/badge.svg)](https://github.com/ankur794/ampcharge-nsw/actions/workflows/tests.yml)
 
 An independent data project looking at where Ampol's existing NSW service
 stations could take an AmpCharge fast charger, and what actually drives where
@@ -184,8 +183,7 @@ PYTHONPATH=src python scripts/build_map.py              # the map
 src/ampcharge/   scoring engine and shared helpers (geo.py: distances,
                  LGA name matching, charger ratings, de-duplication)
 scripts/         fetch, test and map scripts
-tests/           unit tests and synthetic ground-truth tests (run on every
-                 push by GitHub Actions)
+tests/           unit tests and synthetic ground-truth tests (run with pytest)
 data/raw/        downloaded public data (not committed)
 outputs/         map, shortlist and test results
 ```
