@@ -7,92 +7,84 @@ public data.
 **Independent project. Not affiliated with or endorsed by Ampol or AmpCharge.
 Built from public data only.**
 
+**[View the live interactive map »](https://ankur794.github.io/ampcharge-nsw/outputs/ampcharge_map.html)**
+
 ## The idea
 
 Ampol already owns hundreds of NSW sites that have power, parking and often a
 Foodary store. Adding a charger to an existing site is cheaper than building a
 new one, so the real question is *which sites first*. This project scores every
-Ampol site on four things and ranks them:
+Ampol site on EV demand nearby, how short the area is on fast chargers, and the
+site's own strengths (Foodary, major road), then ranks them.
 
-- **Demand** – EVs registered nearby, how fast that is growing, and the share
-  of apartments (people who can't charge at home).
-- **Gap** – how few fast chargers already serve the area.
-- **Traffic** – cars passing the site each day.
-- **Site** – does it have a Foodary, is it open 24/7, is it on a highway.
+## Results
+
+Using live public data: **539 Ampol sites**, the official NSW register of
+**~3,400 charger locations**, and **160,000+ EVs** across 128 council areas
+(LGAs).
+
+**The validation.** Rather than trust the ranking, I tested whether EV demand
+predicts where the whole charging industry actually built its fast chargers.
+Across 128 LGAs, with a proper held-out cross-validation:
+
+- correlation (EVs vs fast chargers): **0.70**
+- cross-validated R²: **0.45**
+
+So EV demand explains about 45% of where chargers were really built, on data
+the model never saw. The demand signal is real.
+
+**The opportunity.** The under-served areas that fall out of this are
+established, high-EV suburbs that the fast-charging network hasn't kept up with:
+The Hills, Ku-ring-gai, Ryde, Parramatta, Cumberland. Top Ampol sites in those
+areas with no fast charger within 2 km include **EG Ampol Kellyville Ridge**,
+**Ampol Foodary St Ives North**, **EG Ampol West Ryde** and
+**Ampol Foodary Wentworthville**. Full list in `outputs/opportunity_sites.csv`.
 
 ## What makes it more than a ranking
 
-The ranking is the easy part. Two steps make it trustworthy:
+1. **Demand validation** (above): does EV demand predict real-world charger
+   placement, cross-validated. See `scripts/validate_demand.py`.
+2. **Sensitivity test:** the scoring weights are jiggled 500 times at random to
+   see which picks hold up under any weighting. See `weight_stability()` in
+   `src/ampcharge/scoring.py`.
+3. **Tested engine:** the scoring logic is proven on synthetic data with a known
+   answer before it touches real data. See `tests/`.
 
-1. **Backtest.** We score every site using only data from before AmpCharge's
-   current sites were built, then check whether those real sites land near the
-   top. If the model agrees with Ampol's own decisions, it's believable. See
-   `backtest()` in `src/ampcharge/scoring.py`.
-2. **Sensitivity test.** We jiggle the four weights 500 times at random and
-   count how often each site stays in the Top 20. Sites that stay no matter the
-   weighting are strong picks; ones that drop out easily are labelled "maybe".
-   See `weight_stability()`.
+## Honest limitations
+
+- Both EV counts and charger counts partly scale with LGA size/population; the
+  next step is to control for population and model EVs-per-charger directly.
+- EV counts are at LGA resolution, coarser than a true drive-time catchment.
+- No grid-capacity, site-cost or land data (not public), so this finds
+  *candidates*, not final build decisions.
 
 ## Run it
 
 ```bash
 pip install -r requirements.txt
 
-# See the whole thing work on synthetic data (no downloads needed):
+# prove the engine on synthetic data with a known answer:
+PYTHONPATH=src python -m pytest tests/ -q
 PYTHONPATH=src python scripts/run_demo.py
 
-# Run the tests (they prove the engine on data with a known answer):
-PYTHONPATH=src python -m pytest tests/ -q
+# with the real data files in data/raw/ (see Data sources):
+PYTHONPATH=src python scripts/validate_demand.py   # the validation + opportunity list
+PYTHONPATH=src python scripts/build_map.py          # the interactive map
 ```
-
-## Use real data (run these on your own machine)
-
-The data sites are blocked in some sandboxes, so fetch locally:
-
-```bash
-# 1. Ampol sites from your existing fuel database
-python scripts/extract_ampol_sites.py --db $FUEL_DB_PATH
-#    then open data/raw/ampol_sites_nsw.csv and set has_foodary / is_24_7 /
-#    on_highway where you know them.
-
-# 2. Every public charger in NSW
-python scripts/fetch_chargers.py --key $OCM_API_KEY
-
-# 3. EV registrations by postcode: download from TfNSW (see Data sources),
-#    save as data/raw/ev_by_postcode.csv with columns
-#    postcode, ev_count, ev_count_prev
-
-# 4. Census by postcode from ABS DataPacks, saved as
-#    data/raw/demographics.csv with columns
-#    postcode, pc_lat, pc_lon, population, apartment_share
-```
-
-Then point `run_demo.py` (or a small `run_real.py`) at those CSVs instead of
-the synthetic world.
 
 ## Data sources
 
-- Ampol site locations: NSW FuelCheck API (via my fuel-price project)
-- EV chargers: [Open Charge Map](https://openchargemap.org/site/develop/api)
-- EV registrations: [TfNSW registration statistics](https://opendata.transport.nsw.gov.au/data/dataset/2342b8e4-d4fc-4549-82de-b36380ea46f2)
-- Traffic: [TfNSW Traffic Volume Counts API](https://opendata.transport.nsw.gov.au/data/dataset/nsw-roads-traffic-volume-counts-api)
-- Census: ABS 2021 Census DataPacks
-
-## Honest limitations
-
-- No grid-capacity data: some sites can't take a fast charger without an
-  expensive upgrade, and that isn't public.
-- No site costs, leases or land size.
-- Traffic counters aren't outside every site, so some AADT figures come from the
-  nearest counter (flagged in the data).
-- EV counts are by postcode, coarser than a true drive-time catchment.
+- Ampol site locations: [NSW FuelCheck](https://api.nsw.gov.au/) (via my fuel-price project)
+- EV charger locations: [NSW Transport – EV Charging Locations](https://data.nsw.gov.au/data/dataset/2-ev-charging-locations)
+- EV registrations by LGA: NSW vehicle registration data (Peclet open data)
+- Postcode / LGA lookup: [matthewproctor/australianpostcodes](https://github.com/matthewproctor/australianpostcodes)
 
 ## Layout
 
 ```
 src/ampcharge/   config, features, scoring  (the model)
-scripts/         fetch + run scripts
+scripts/         fetch, validate, map and run scripts
 tests/           synthetic ground-truth tests
-data/raw/        your downloaded CSVs (gitignored)
-outputs/         maps and site cards
+data/raw/        downloaded public CSVs (gitignored)
+outputs/         the map, the scored sites, the opportunity list
 ```
