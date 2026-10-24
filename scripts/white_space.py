@@ -40,11 +40,58 @@ ATTENTION_COLS = ["log_nearest_existing", "existing_within_5km", "log_dist_cbd"]
 COLOURS = {"WHITE SPACE": "#d62828", "CONTESTED": "#f4a300",
            "SATURATED": "#5a7d9a", "LOW PRIORITY": "#b8b8b8"}
 
+# LGAs on the ACT / QLD / VIC / SA border. The NSW charger register doesn't
+# include chargers across the state line, so these areas can look
+# under-served when drivers actually use chargers a few minutes away.
+BORDER_LGAS = {
+    "QUEANBEYAN PALERANG", "YASS VALLEY", "SNOWY MONARO",            # ACT
+    "TWEED", "KYOGLE", "TENTERFIELD", "MOREE PLAINS", "GWYDIR",       # QLD
+    "WALGETT", "BREWARRINA", "BOURKE", "INVERELL",
+    "ALBURY", "GREATER HUME", "FEDERATION", "BERRIGAN",               # VIC
+    "MURRAY RIVER", "EDWARD RIVER", "BALRANALD", "WENTWORTH",
+    "SNOWY VALLEYS", "BEGA VALLEY",
+    "BROKEN HILL", "UNINCORPORATED NSW",                               # SA / far west
+}
+
+
+def haversine_km(lat1, lon1, lat2, lon2):
+    lat1, lon1, lat2, lon2 = map(np.radians, (lat1, lon1, lat2, lon2))
+    dlat, dlon = lat2 - lat1, lon2 - lon1
+    a = np.sin(dlat/2)**2 + np.cos(lat1)*np.cos(lat2)*np.sin(dlon/2)**2
+    return 2 * 6371.0 * np.arcsin(np.sqrt(a))
+
+
+def dedupe_sites(s, near_km=0.1, same_name_km=1.0):
+    """FuelCheck lists some sites twice (e.g. separate Petrol and Diesel stations).
+
+    Two entries count as one site if they are within 100 m, or within 1 km and
+    have the same name once 'Petrol'/'Diesel' is stripped. Foodary entries are
+    kept in preference.
+    """
+    base = (s["name"].str.upper()
+              .str.replace(r"\b(PETROL|DIESEL|STOP)\b", "", regex=True)
+              .str.replace(r"\s+", " ", regex=True).str.strip())
+    order = s.assign(_f=s["has_foodary"].astype(bool)).sort_values("_f", ascending=False).index
+    kept, klat, klon, kname = [], [], [], []
+    for i in order:
+        a, b, n = s.at[i, "lat"], s.at[i, "lon"], base.at[i]
+        if kept:
+            d = haversine_km(a, b, np.array(klat), np.array(klon))
+            same = np.array(kname) == n
+            if (d <= near_km).any() or ((d <= same_name_km) & same).any():
+                continue
+        kept.append(i); klat.append(a); klon.append(b); kname.append(n)
+    return s.loc[sorted(kept)].reset_index(drop=True)
+
 
 def main():
     s = pd.read_csv(os.path.join(OUT, "placement_drivers_sites.csv"), dtype={"site_id": str})
+    before = len(s)
+    s = dedupe_sites(s)
+    print(f"Merged duplicate FuelCheck entries: {before} -> {len(s)} physical sites")
     lga = pd.read_csv(os.path.join(OUT, "lga_validation.csv"))[["lga", "fast_chargers"]]
     s = s.merge(lga, on="lga", how="left")
+    s["border_area"] = s["lga"].isin(BORDER_LGAS)
 
     # ATTENTION: out-of-fold probability from the proximity-only model
     y = s["planned_within_2km"].astype(int).values
@@ -70,7 +117,7 @@ def main():
     overlap = k["need_pct"].corr(k["attention_pct"], method="spearman")
     print(f"Sites scored: {len(k)} of {len(s)} (the rest have no LGA match)")
     print(f"Overlap between need and attention (rank correlation): {overlap:.2f}")
-    print("  near 0 = the two scores measure different things, which is what we want")
+    print("  positive = the market mostly does go where need is; white space = the exceptions")
 
     print("\n=== Sites per quadrant ===")
     q = k.groupby("quadrant").agg(sites=("site_id", "count"),
@@ -80,7 +127,13 @@ def main():
     q["foodary"] = (q["foodary"] * 100).round(0).astype(int).astype(str) + "%"
     print(q.to_string())
 
-    ws = k[k["quadrant"] == "WHITE SPACE"].sort_values("white_space_score", ascending=False)
+    all_ws = k[k["quadrant"] == "WHITE SPACE"].sort_values("white_space_score", ascending=False)
+    border_ws = all_ws[all_ws["border_area"]]
+    ws = all_ws[~all_ws["border_area"]]
+    if len(border_ws):
+        print(f"\nWhite-space sites in border areas, left out of the ranking "
+              f"(cross-border chargers not in the data): {len(border_ws)}")
+        print("  " + ", ".join(f"{n} ({l.title()})" for n, l in zip(border_ws["name"], border_ws["lga"])))
     cols = ["site_id", "name", "lga", "evs_per_fast_charger", "nearest_existing_km",
             "need_pct", "attention_pct", "has_foodary"]
     show = ws.head(20)[cols].copy()
@@ -91,8 +144,10 @@ def main():
     print("\n=== Top 20 WHITE SPACE sites (high need, low market attention) ===")
     print(show.to_string(index=False))
 
-    out = s.merge(k[["site_id", "need_pct", "attention_pct", "quadrant", "white_space_score"]],
-                  on="site_id", how="left")
+    k["white_space_rank"] = np.nan
+    k.loc[ws.index, "white_space_rank"] = np.arange(1, len(ws) + 1)
+    out = s.merge(k[["site_id", "need_pct", "attention_pct", "quadrant",
+                     "white_space_score", "white_space_rank"]], on="site_id", how="left")
     out["quadrant"] = out["quadrant"].fillna("UNKNOWN (no LGA)")
     out.to_csv(os.path.join(OUT, "white_space_sites.csv"), index=False)
 

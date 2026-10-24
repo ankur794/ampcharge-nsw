@@ -51,7 +51,11 @@ def popup_html(s, rank=None):
         f"EVs per existing fast charger (LGA): <b>{evpc}</b><br>"
         f"Nearest existing fast charger: <b>{s['nearest_existing_km']:.1f} km</b><br>"
         f"Planned fast charger within 2 km: <b>{'yes' if bool(s['planned_within_2km']) else 'no'}</b><br>"
-        f"Foodary on site: <b>{'yes' if bool(s['has_foodary']) else 'no'}</b></div>")
+        f"Foodary on site: <b>{'yes' if bool(s['has_foodary']) else 'no'}</b>"
+        + ("<br><span style='color:#b45309'>Border area: chargers across the state line "
+           "aren't in the NSW data, so need may be overstated.</span>"
+           if bool(s.get("border_area", False)) else "")
+        + "</div>")
 
 
 def main():
@@ -83,8 +87,9 @@ def main():
     fg_con = folium.FeatureGroup(name="Contested Ampol sites (market already coming)", show=True)
     fg_ws = folium.FeatureGroup(name=f"White space Ampol sites (top {TOP_N} numbered)", show=True)
 
-    ws = s[s["quadrant"] == "WHITE SPACE"].sort_values("white_space_score", ascending=False)
-    rank = {sid: i for i, sid in enumerate(ws["site_id"].head(TOP_N), 1)}
+    ws = s[s["quadrant"] == "WHITE SPACE"]
+    ranked = s.dropna(subset=["white_space_rank"]).sort_values("white_space_rank").head(TOP_N)
+    rank = {sid: int(r) for sid, r in zip(ranked["site_id"], ranked["white_space_rank"])}
 
     for _, r in s.iterrows():
         q = r["quadrant"]
@@ -115,7 +120,7 @@ def main():
         fg.add_to(m)
     folium.LayerControl(collapsed=False).add_to(m)
 
-    top = ws.head(TOP_N)
+    top = ranked
     if len(top):
         m.fit_bounds([[top["lat"].min(), top["lon"].min()],
                       [top["lat"].max(), top["lon"].max()]], padding=(50, 50))

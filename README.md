@@ -11,10 +11,16 @@ the charging industry builds. Public data only.
 ## The short version
 
 The charging market clusters. New fast chargers are going in next to existing
-ones and close to the city, not where EV owners are short of charging. That
-leaves established high-EV suburbs, like The Hills and Ku-ring-gai, with fewer
-fast chargers than their EV numbers would suggest, and Ampol already has sites
-in those areas.
+ones and close to the city, not where EV owners are short of charging.
+
+Scoring every Ampol site on **need** (EVs per existing fast charger) against
+**market attention** (how likely operators are to build nearby) finds 52
+"white space" sites: high need, little market interest. 14 of the top 20 sit in
+one corridor, the **Central Coast, Lake Macquarie and Maitland**, along the M1
+between Sydney and Newcastle. The top site is **Rouse Hill**: The Hills has
+about **1,500 EVs per existing fast charger**, the highest in NSW.
+
+![White space chart](outputs/white_space.png)
 
 This project is a **first-pass filter**: it narrows 539 Ampol sites down to a
 shortlist worth a closer look. It is not a final build list, because the things
@@ -77,18 +83,54 @@ Two readings, and public data can't settle which is right:
 
 Either way, the shortlist below is where it's worth asking that question.
 
-## The shortlist
+## The white space
 
-Ampol sites in LGAs with fewer fast chargers than their EV numbers suggest, and
-no fast charger within 2 km. Top of the list:
+Each Ampol site gets two scores, kept deliberately separate:
 
-- EG Ampol Kellyville Ridge (The Hills)
-- Ampol Rouse Hill (The Hills)
-- Ampol Foodary St Ives North (Ku-ring-gai)
-- EG Ampol West Ryde (Ryde)
-- Ampol Foodary Wentworthville (Cumberland)
+- **Need:** EVs per existing fast charger in the site's LGA. Demand side only.
+- **Market attention:** the probability of a planned fast charger nearby, from
+  the proximity model in test 3 (scored out-of-fold, so no site is scored by a
+  model that saw it). Market side only.
 
-Full list: `outputs/opportunity_sites.csv`. All 25 are on the map.
+Splitting each at the median gives four groups (440 sites with LGA data):
+
+| Group | Sites | Planned charger within 2 km | Has a Foodary |
+| --- | --- | --- | --- |
+| Contested (high need, high attention) | 165 | 25% | 48% |
+| **White space (high need, low attention)** | **52** | **12%** | 33% |
+| Saturated (low need, high attention) | 56 | 21% | 46% |
+| Low priority (low need, low attention) | 167 | 8% | 27% |
+
+Need and attention are positively related (rank correlation 0.56): for the
+most part the market does go where need is. The white space is the exceptions.
+
+**Top 10 white-space sites:**
+
+| # | Site | LGA | EVs per fast charger |
+| --- | --- | --- | --- |
+| 1 | Ampol Rouse Hill | The Hills | 1,496 |
+| 2 | Caltex Peats Ridge | Central Coast | 706 |
+| 3 | Ampol Foodary Morisset | Lake Macquarie | 666 |
+| 4 | EG Ampol Umina | Central Coast | 706 |
+| 5 | Caltex Heddon Greta | Maitland | 601 |
+| 6 | EG Ampol Morisset | Lake Macquarie | 666 |
+| 7 | Ampol Foodary Wyong M1 (northbound) | Central Coast | 706 |
+| 8 | Ampol Foodary Toronto | Lake Macquarie | 666 |
+| 9 | Ampol Foodary Wyong M1 (southbound) | Central Coast | 706 |
+| 10 | EG Ampol Menai | Sutherland | 842 |
+
+Full ranking: `outputs/white_space_sites.csv` (column `white_space_rank`).
+The top 20 are numbered on the map.
+
+**Two clean-ups before ranking:**
+
+- FuelCheck lists some sites twice (separate petrol and diesel entries), so
+  entries within 100 m, or within 1 km with the same name, were merged:
+  539 entries became 530 physical sites.
+- Sites in council areas on the ACT, QLD, VIC or SA border are left out of the
+  ranking, because chargers across the state line aren't in the NSW register.
+  Five white-space sites around Queanbeyan, next to Canberra, were set aside
+  for this reason.
 
 ## Limitations
 
@@ -96,6 +138,10 @@ Full list: `outputs/opportunity_sites.csv`. All 25 are on the map.
 - Planned chargers have no LGA in the source file, so each was given the LGA of
   its nearest existing charger.
 - 94 planned chargers is a small sample; treat test 2 as a signal, not proof.
+- Need is measured per LGA, so every site in the same LGA shares a need score;
+  within an LGA the ranking is driven by market attention.
+- Site postcodes are parsed from FuelCheck addresses, which occasionally picks
+  up the wrong number and puts a site in the wrong LGA.
 - No grid, land or cost data, so this finds candidates, not decisions.
 
 ## Run it
@@ -110,6 +156,7 @@ PYTHONPATH=src python -m pytest tests/ -q
 PYTHONPATH=src python scripts/validate_demand.py        # test 1 + shortlist
 PYTHONPATH=src python scripts/backtest_upcoming.py      # test 2
 PYTHONPATH=src python scripts/what_drives_placement.py  # test 3
+PYTHONPATH=src python scripts/white_space.py            # need vs attention + chart
 PYTHONPATH=src python scripts/build_map.py              # the map
 ```
 
