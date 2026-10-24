@@ -144,6 +144,18 @@ The top 20 are numbered on the map.
   Five white-space sites around Queanbeyan, next to Canberra, were set aside
   for this reason.
 
+## Looking ahead to 2030
+
+Projecting each LGA's own EV growth to the end of 2030, and holding the
+charger network at today's level, NSW battery EVs rise from about 160,000 to
+about 830,000. The squeeze lands hardest on the same areas the white-space
+analysis flags: The Hills goes from roughly 1,500 to 7,800 EVs per fast
+charger, with Parramatta, Ku-ring-gai, the Central Coast and Lake Macquarie
+close behind. So the places that are under-served today are the ones that get
+much worse. See `scripts/forecast_2030.py`.
+
+![EV charging gap by 2030](outputs/forecast_2030.png)
+
 ## Limitations
 
 - EV numbers are only available by LGA, so anything finer is an estimate.
