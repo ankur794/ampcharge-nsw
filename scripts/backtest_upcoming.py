@@ -13,38 +13,14 @@ Needs: outputs/lga_validation.csv and outputs/opportunity_sites.csv
 from __future__ import annotations
 
 import os
-import re
 import numpy as np
 import pandas as pd
+from ampcharge.geo import norm_lga, max_kw, haversine_km
 
 RAW = os.path.join(os.path.dirname(__file__), "..", "data", "raw")
 OUT = os.path.join(os.path.dirname(__file__), "..", "outputs")
 FAST_KW = 50.0
 NEAR_KM = 2.0
-
-
-def norm_lga(name):
-    if not isinstance(name, str):
-        return ""
-    s = name.upper()
-    s = re.sub(r"\(.*?\)", " ", s)
-    s = s.replace(",", " ").replace("-", " ")
-    s = re.sub(r"\b(COUNCIL|CITY|SHIRE|REGIONAL|MUNICIPAL|OF|THE)\b", " ", s)
-    return re.sub(r"\s+", " ", s).strip()
-
-
-def max_kw(rating):
-    if not isinstance(rating, str):
-        return 0.0
-    nums = re.findall(r"(\d+(?:\.\d+)?)\s*kW", rating, flags=re.I)
-    return max((float(n) for n in nums), default=0.0)
-
-
-def haversine_km(lat1, lon1, lat2, lon2):
-    lat1, lon1, lat2, lon2 = map(np.radians, (lat1, lon1, lat2, lon2))
-    dlat, dlon = lat2 - lat1, lon2 - lon1
-    a = np.sin(dlat/2)**2 + np.cos(lat1)*np.cos(lat2)*np.sin(dlon/2)**2
-    return 2 * 6371.0 * np.arcsin(np.sqrt(a))
 
 
 def main():

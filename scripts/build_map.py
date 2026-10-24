@@ -15,23 +15,16 @@ Layers (each can be switched on/off):
 from __future__ import annotations
 
 import os
-import re
 import pandas as pd
 import folium
 from folium.features import DivIcon
+from ampcharge.geo import max_kw
 
 RAW = os.path.join(os.path.dirname(__file__), "..", "data", "raw")
 OUT = os.path.join(os.path.dirname(__file__), "..", "outputs")
 TOP_N = 20
 
 RED, AMBER, GREY, SLATE, PURPLE = "#d62828", "#f4a300", "#9a9a9a", "#5a7d9a", "#7b2cbf"
-
-
-def max_kw(rating):
-    if not isinstance(rating, str):
-        return 0.0
-    nums = re.findall(r"(\d+(?:\.\d+)?)\s*kW", rating, flags=re.I)
-    return max((float(n) for n in nums), default=0.0)
 
 
 def pct(x):

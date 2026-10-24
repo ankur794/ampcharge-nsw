@@ -20,7 +20,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from ampcharge.features import haversine_km, count_fast_chargers_near, build_features
-from ampcharge import score_sites, backtest, weight_stability
+from ampcharge import score_sites, backtest
 from ampcharge.config import FAST_CHARGER_MIN_KW, CATCHMENT_FALLBACK_KM
 
 RAW = os.path.join(os.path.dirname(__file__), "..", "data", "raw")

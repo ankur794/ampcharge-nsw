@@ -18,17 +18,7 @@ import numpy as np
 import pandas as pd
 
 from .config import FAST_CHARGER_MIN_KW, CATCHMENT_FALLBACK_KM
-
-EARTH_RADIUS_KM = 6371.0
-
-
-def haversine_km(lat1, lon1, lat2, lon2):
-    """Great-circle distance in km. Accepts scalars or numpy arrays."""
-    lat1, lon1, lat2, lon2 = map(np.radians, (lat1, lon1, lat2, lon2))
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
-    a = np.sin(dlat / 2) ** 2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2) ** 2
-    return 2 * EARTH_RADIUS_KM * np.arcsin(np.sqrt(a))
+from .geo import haversine_km  # noqa: F401  (re-exported for run_real.py)
 
 
 def count_fast_chargers_near(site, chargers, radius_km=CATCHMENT_FALLBACK_KM):
@@ -57,7 +47,6 @@ def postcodes_within(site, demographics, radius_km=CATCHMENT_FALLBACK_KM):
 def build_features(sites, chargers, ev, demographics, traffic=None,
                    radius_km=CATCHMENT_FALLBACK_KM):
     """Assemble the per-site feature table. Pure function, no I/O."""
-    ev_by_pc = ev.set_index("postcode")
     demo = demographics.copy()
     demo = demo.merge(ev, on="postcode", how="left")
     demo[["ev_count", "ev_count_prev"]] = demo[["ev_count", "ev_count_prev"]].fillna(0)

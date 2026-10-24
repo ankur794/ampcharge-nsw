@@ -15,10 +15,10 @@ import pandas as pd
 
 from ampcharge import build_features, score_sites, backtest, weight_stability
 
-RNG = np.random.default_rng(0)
 
 
-def _make_world(n_sites=200, n_obvious=10):
+def _make_world(n_sites=200, n_obvious=10, seed=0):
+    RNG = np.random.default_rng(seed)  # fresh each call: same world whatever the test order
     # Sites on a lat/lon grid roughly the size of greater Sydney.
     lat = -33.8 + RNG.uniform(-0.6, 0.6, n_sites)
     lon = 151.0 + RNG.uniform(-0.8, 0.8, n_sites)
@@ -100,10 +100,14 @@ def test_backtest_flags_built_sites():
 def test_stability_runs_and_ranks():
     sites, chargers, ev, demo, traffic, obvious_ids = _make_world()
     feats = build_features(sites, chargers, ev, demo, traffic)
-    stab = weight_stability(feats, n_runs=100)
-    # The planted sites should be the most stable Top-20 members.
-    top = set(stab.head(10)["site_id"])
-    assert len(top & set(obvious_ids)) >= 8
+    stab = weight_stability(feats, n_runs=100).set_index("site_id")["top_n_stability"]
+    # The planted sites should stay in the Top 20 under almost any weighting.
+    # (Checked directly: many sites can tie at 1.0, so "the first 10 rows"
+    # depends on how pandas breaks ties and isn't a fair test.)
+    planted = stab.loc[obvious_ids]
+    assert (planted >= 0.95).sum() >= 8
+    # ...and be clearly more stable than a typical site.
+    assert planted.median() > stab.drop(obvious_ids).median()
 
 
 def test_scores_in_range():

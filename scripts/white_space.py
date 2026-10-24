@@ -34,54 +34,12 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import StratifiedKFold, cross_val_predict
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
+from ampcharge.geo import dedupe_sites, BORDER_LGAS
 
 OUT = os.path.join(os.path.dirname(__file__), "..", "outputs")
 ATTENTION_COLS = ["log_nearest_existing", "existing_within_5km", "log_dist_cbd"]
 COLOURS = {"WHITE SPACE": "#d62828", "CONTESTED": "#f4a300",
            "SATURATED": "#5a7d9a", "LOW PRIORITY": "#b8b8b8"}
-
-# LGAs on the ACT / QLD / VIC / SA border. The NSW charger register doesn't
-# include chargers across the state line, so these areas can look
-# under-served when drivers actually use chargers a few minutes away.
-BORDER_LGAS = {
-    "QUEANBEYAN PALERANG", "YASS VALLEY", "SNOWY MONARO",            # ACT
-    "TWEED", "KYOGLE", "TENTERFIELD", "MOREE PLAINS", "GWYDIR",       # QLD
-    "WALGETT", "BREWARRINA", "BOURKE", "INVERELL",
-    "ALBURY", "GREATER HUME", "FEDERATION", "BERRIGAN",               # VIC
-    "MURRAY RIVER", "EDWARD RIVER", "BALRANALD", "WENTWORTH",
-    "SNOWY VALLEYS", "BEGA VALLEY",
-    "BROKEN HILL", "UNINCORPORATED NSW",                               # SA / far west
-}
-
-
-def haversine_km(lat1, lon1, lat2, lon2):
-    lat1, lon1, lat2, lon2 = map(np.radians, (lat1, lon1, lat2, lon2))
-    dlat, dlon = lat2 - lat1, lon2 - lon1
-    a = np.sin(dlat/2)**2 + np.cos(lat1)*np.cos(lat2)*np.sin(dlon/2)**2
-    return 2 * 6371.0 * np.arcsin(np.sqrt(a))
-
-
-def dedupe_sites(s, near_km=0.1, same_name_km=1.0):
-    """FuelCheck lists some sites twice (e.g. separate Petrol and Diesel stations).
-
-    Two entries count as one site if they are within 100 m, or within 1 km and
-    have the same name once 'Petrol'/'Diesel' is stripped. Foodary entries are
-    kept in preference.
-    """
-    base = (s["name"].str.upper()
-              .str.replace(r"\b(PETROL|DIESEL|STOP)\b", "", regex=True)
-              .str.replace(r"\s+", " ", regex=True).str.strip())
-    order = s.assign(_f=s["has_foodary"].astype(bool)).sort_values("_f", ascending=False).index
-    kept, klat, klon, kname = [], [], [], []
-    for i in order:
-        a, b, n = s.at[i, "lat"], s.at[i, "lon"], base.at[i]
-        if kept:
-            d = haversine_km(a, b, np.array(klat), np.array(klon))
-            same = np.array(kname) == n
-            if (d <= near_km).any() or ((d <= same_name_km) & same).any():
-                continue
-        kept.append(i); klat.append(a); klon.append(b); kname.append(n)
-    return s.loc[sorted(kept)].reset_index(drop=True)
 
 
 def main():
