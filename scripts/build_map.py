@@ -1,14 +1,16 @@
-"""Build a polished interactive map of the AmpCharge opportunity shortlist.
+"""Interactive map: white space, existing chargers and planned chargers.
 
     PYTHONPATH=src python scripts/build_map.py
 
-Reads outputs/opportunity_sites.csv, the official charger file and the Ampol
-sites; writes outputs/ampcharge_map.html.
+Reads outputs/white_space_sites.csv (white_space.py) and the official charger
+file. Writes outputs/ampcharge_map.html.
 
-  - grey dots: every existing fast charger (context)
-  - numbered red circles: the Top 25 opportunity sites, ranked, sized by
-    demand gap; a gold ring means the site has a Foodary
-  - legend with a size scale, and a title block
+Layers (each can be switched on/off):
+  - White space sites (red, numbered top 20)   high need, low market attention
+  - Contested sites (amber)                     high need, market already coming
+  - Saturated / low priority sites (grey)
+  - Existing fast chargers (slate dots)
+  - Planned fast chargers (purple rings)        where the market is heading
 """
 from __future__ import annotations
 
@@ -20,12 +22,9 @@ from folium.features import DivIcon
 
 RAW = os.path.join(os.path.dirname(__file__), "..", "data", "raw")
 OUT = os.path.join(os.path.dirname(__file__), "..", "outputs")
-TOP_N = 25
+TOP_N = 20
 
-RED = "#d62828"
-RED_FILL = "#e63946"
-GOLD = "#f4a300"
-CHARGER = "#5a7d9a"
+RED, AMBER, GREY, SLATE, PURPLE = "#d62828", "#f4a300", "#9a9a9a", "#5a7d9a", "#7b2cbf"
 
 
 def max_kw(rating):
@@ -35,85 +34,121 @@ def max_kw(rating):
     return max((float(n) for n in nums), default=0.0)
 
 
+def pct(x):
+    return "n/a" if pd.isna(x) else f"{x:.0%}"
+
+
+def popup_html(s, rank=None):
+    head = f"#{rank} &nbsp;" if rank else ""
+    evpc = "n/a" if pd.isna(s.get("evs_per_fast_charger")) else f"{s['evs_per_fast_charger']:,.0f}"
+    return (
+        "<div style='font-family:sans-serif;font-size:12px;min-width:220px'>"
+        f"<b>{head}{s['name']}</b><br>"
+        f"<span style='color:#666'>{str(s.get('lga','')).title()} &middot; {s['quadrant'].title()}</span>"
+        "<hr style='margin:5px 0'>"
+        f"Need percentile: <b>{pct(s.get('need_pct'))}</b><br>"
+        f"Market attention percentile: <b>{pct(s.get('attention_pct'))}</b><br>"
+        f"EVs per existing fast charger (LGA): <b>{evpc}</b><br>"
+        f"Nearest existing fast charger: <b>{s['nearest_existing_km']:.1f} km</b><br>"
+        f"Planned fast charger within 2 km: <b>{'yes' if bool(s['planned_within_2km']) else 'no'}</b><br>"
+        f"Foodary on site: <b>{'yes' if bool(s['has_foodary']) else 'no'}</b></div>")
+
+
 def main():
-    opp = pd.read_csv(os.path.join(OUT, "opportunity_sites.csv"), dtype={"site_id": str}).head(TOP_N)
-    sites = pd.read_csv(os.path.join(RAW, "ampol_sites_nsw.csv"), dtype={"site_id": str})
-    opp = opp.merge(sites[["site_id", "lat", "lon"]], on="site_id", how="left").dropna(subset=["lat", "lon"])
+    s = pd.read_csv(os.path.join(OUT, "white_space_sites.csv"), dtype={"site_id": str})
+    s = s.dropna(subset=["lat", "lon"])
 
-    ch = pd.read_csv(os.path.join(RAW, "ev_charging_nsw_official.csv"))
+    ch = pd.read_csv(os.path.join(RAW, "ev_charging_nsw_official.csv")).dropna(subset=["Latitude", "Longitude"])
     ch["kw"] = ch["Charger_rating"].map(max_kw)
-    fast = ch[(ch["kw"] >= 50)
-              & ~ch["Charger_Type"].astype(str).str.contains("upcoming|planned", case=False, na=False)]
-    fast = fast.dropna(subset=["Latitude", "Longitude"])
+    up = ch["Charger_Type"].astype(str).str.contains("upcoming", case=False, na=False)
+    existing = ch[~up & (ch["kw"] >= 50)]
+    planned = ch[up & (ch["kw"] >= 50)]
 
-    m = folium.Map(location=[-33.82, 151.0], zoom_start=11, tiles="OpenStreetMap", control_scale=True)
+    m = folium.Map(location=[-33.6, 151.1], zoom_start=9, tiles="OpenStreetMap", control_scale=True)
 
-    # existing fast chargers
-    fg_ch = folium.FeatureGroup(name="Existing fast chargers", show=True)
-    for _, c in fast.iterrows():
-        folium.CircleMarker([c["Latitude"], c["Longitude"]], radius=3,
-                            color=CHARGER, fill=True, fill_color=CHARGER,
-                            fill_opacity=0.7, weight=0,
-                            tooltip=f"{c.get('Operator','charger')} ~{int(c['kw'])}kW").add_to(fg_ch)
-    fg_ch.add_to(m)
+    fg_ex = folium.FeatureGroup(name=f"Existing fast chargers ({len(existing)})", show=True)
+    for _, c in existing.iterrows():
+        folium.CircleMarker([c["Latitude"], c["Longitude"]], radius=3, color=SLATE, fill=True,
+                            fill_color=SLATE, fill_opacity=0.75, weight=0,
+                            tooltip=f"Existing: {c.get('Operator','')} ~{int(c['kw'])}kW").add_to(fg_ex)
+    fg_ex.add_to(m)
 
-    # opportunity sites, ranked + sized by gap
-    fg_opp = folium.FeatureGroup(name="AmpCharge opportunity sites (Top 25)", show=True)
-    gmax = opp["gap"].max() if len(opp) else 1
-    for i, (_, s) in enumerate(opp.iterrows(), 1):
-        r = 10 + 16 * (s["gap"] / gmax)
-        popup = folium.Popup(html=(
-            f"<div style='font-family:sans-serif;font-size:12px'>"
-            f"<b>#{i} &nbsp;{s['name']}</b><br>"
-            f"<span style='color:#555'>{s['lga']} LGA</span><hr style='margin:4px 0'>"
-            f"EVs in LGA: <b>{int(s['ev_count']):,}</b><br>"
-            f"Shortfall vs demand: <b>{s['gap']:.1f}</b> fast chargers<br>"
-            f"Nearest fast charger: <b>{s['nearest_fast_km']:.1f} km</b><br>"
-            f"Foodary on site: <b>{'yes' if s['has_foodary'] else 'no'}</b></div>"), max_width=260)
-        # gold ring for Foodary sites
-        if s["has_foodary"]:
-            folium.CircleMarker([s["lat"], s["lon"]], radius=r + 3, color=GOLD,
-                                fill=False, weight=3, opacity=0.9).add_to(fg_opp)
-        folium.CircleMarker([s["lat"], s["lon"]], radius=r, color=RED, fill=True,
-                            fill_color=RED_FILL, fill_opacity=0.8, weight=1.5,
-                            popup=popup, tooltip=f"#{i} {s['name']}").add_to(fg_opp)
-        folium.map.Marker([s["lat"], s["lon"]], icon=DivIcon(
-            icon_size=(24, 24), icon_anchor=(12, 12),
-            html=f"<div style='font-size:11px;font-weight:700;color:white;"
-                 f"text-align:center;line-height:24px;pointer-events:none'>{i}</div>")).add_to(fg_opp)
-    fg_opp.add_to(m)
+    fg_pl = folium.FeatureGroup(name=f"Planned fast chargers ({len(planned)})", show=True)
+    for _, c in planned.iterrows():
+        folium.CircleMarker([c["Latitude"], c["Longitude"]], radius=6, color=PURPLE, fill=False,
+                            weight=2.5, tooltip=f"Planned: {c.get('Operator','')} ~{int(c['kw'])}kW").add_to(fg_pl)
+    fg_pl.add_to(m)
 
+    fg_other = folium.FeatureGroup(name="Other Ampol sites (saturated / low priority)", show=False)
+    fg_con = folium.FeatureGroup(name="Contested Ampol sites (market already coming)", show=True)
+    fg_ws = folium.FeatureGroup(name=f"White space Ampol sites (top {TOP_N} numbered)", show=True)
+
+    ws = s[s["quadrant"] == "WHITE SPACE"].sort_values("white_space_score", ascending=False)
+    rank = {sid: i for i, sid in enumerate(ws["site_id"].head(TOP_N), 1)}
+
+    for _, r in s.iterrows():
+        q = r["quadrant"]
+        if q == "WHITE SPACE":
+            k = rank.get(r["site_id"])
+            radius = 11 if k else 7
+            folium.CircleMarker([r["lat"], r["lon"]], radius=radius, color="#7a0e0e", weight=1.2,
+                                fill=True, fill_color=RED, fill_opacity=0.85,
+                                popup=folium.Popup(popup_html(r, k), max_width=300),
+                                tooltip=f"{'#'+str(k)+' ' if k else ''}{r['name']}").add_to(fg_ws)
+            if k:
+                folium.map.Marker([r["lat"], r["lon"]], icon=DivIcon(
+                    icon_size=(22, 22), icon_anchor=(11, 11),
+                    html=f"<div style='font-size:10px;font-weight:700;color:white;text-align:center;"
+                         f"line-height:22px;pointer-events:none'>{k}</div>")).add_to(fg_ws)
+        elif q == "CONTESTED":
+            folium.CircleMarker([r["lat"], r["lon"]], radius=6, color=AMBER, weight=1,
+                                fill=True, fill_color=AMBER, fill_opacity=0.7,
+                                popup=folium.Popup(popup_html(r), max_width=300),
+                                tooltip=r["name"]).add_to(fg_con)
+        else:
+            folium.CircleMarker([r["lat"], r["lon"]], radius=4, color=GREY, weight=1,
+                                fill=True, fill_color=GREY, fill_opacity=0.6,
+                                popup=folium.Popup(popup_html(r), max_width=300),
+                                tooltip=r["name"]).add_to(fg_other)
+
+    for fg in (fg_other, fg_con, fg_ws):
+        fg.add_to(m)
     folium.LayerControl(collapsed=False).add_to(m)
-    if len(opp):
-        m.fit_bounds([[opp["lat"].min(), opp["lon"].min()],
-                      [opp["lat"].max(), opp["lon"].max()]], padding=(60, 60))
 
-    title = ("<div style='position:fixed;top:12px;left:50px;z-index:9999;background:white;"
-             "padding:10px 14px;border:1px solid #ccc;border-radius:8px;font-family:sans-serif;"
-             "max-width:360px;box-shadow:0 1px 4px rgba(0,0,0,.2)'>"
-             "<div style='font-size:15px;font-weight:700;color:#1b2a4a'>Where AmpCharge could build next</div>"
-             "<div style='font-size:12px;color:#444;margin-top:2px'>NSW Ampol sites in areas with more EV "
-             "demand than the charging network has kept up with.</div>"
-             "<div style='font-size:10.5px;color:#777;margin-top:5px'>Independent student project. "
-             "Public data: NSW EV registrations, NSW EV charger locations, FuelCheck. Not affiliated with Ampol.</div></div>")
+    top = ws.head(TOP_N)
+    if len(top):
+        m.fit_bounds([[top["lat"].min(), top["lon"].min()],
+                      [top["lat"].max(), top["lon"].max()]], padding=(50, 50))
+
+    box = ("position:fixed;z-index:9999;background:white;border:1px solid #ccc;border-radius:8px;"
+           "font-family:sans-serif;box-shadow:0 1px 4px rgba(0,0,0,.2);")
+    title = (f"<div style='{box}top:12px;left:50px;padding:10px 14px;max-width:370px'>"
+             "<div style='font-size:15px;font-weight:700;color:#1b2a4a'>White space for EV fast charging, NSW</div>"
+             "<div style='font-size:12px;color:#444;margin-top:3px'>Ampol sites where EV owners are short of fast "
+             "chargers, but the market is building elsewhere. Planned chargers (purple) mostly cluster next to "
+             "existing ones.</div>"
+             "<div style='font-size:10.5px;color:#777;margin-top:5px'>Independent student project, public data only. "
+             "Not affiliated with Ampol.</div></div>")
+    def dot(c, ring=False, size=12):
+        style = f"border:2.5px solid {c};" if ring else f"background:{c};"
+        return (f"<span style='display:inline-block;width:{size}px;height:{size}px;border-radius:50%;"
+                f"{style}margin-right:7px;vertical-align:middle'></span>")
+    legend = (f"<div style='{box}bottom:24px;right:18px;padding:10px 14px;font-size:12px;line-height:1.7'>"
+              "<div style='font-weight:700;margin-bottom:3px'>Legend</div>"
+              f"<div>{dot(RED)}White space (number = rank)</div>"
+              f"<div>{dot(AMBER)}Contested</div>"
+              f"<div>{dot(GREY, size=9)}Other Ampol sites (off by default)</div>"
+              f"<div>{dot(SLATE, size=8)}Existing fast charger</div>"
+              f"<div>{dot(PURPLE, ring=True)}Planned fast charger</div>"
+              "<div style='color:#777;font-size:10.5px;margin-top:3px'>Click any Ampol site for its scores</div></div>")
     m.get_root().html.add_child(folium.Element(title))
-
-    legend = ("<div style='position:fixed;bottom:24px;right:18px;z-index:9999;background:white;"
-              "padding:10px 14px;border:1px solid #ccc;border-radius:8px;font-family:sans-serif;"
-              "font-size:12px;box-shadow:0 1px 4px rgba(0,0,0,.2)'>"
-              "<div style='font-weight:700;margin-bottom:6px'>Legend</div>"
-              "<div><span style='display:inline-block;width:12px;height:12px;border-radius:50%;"
-              f"background:{RED_FILL};margin-right:6px'></span>Opportunity site (number = rank)</div>"
-              "<div style='margin-top:3px'><span style='display:inline-block;width:12px;height:12px;"
-              f"border-radius:50%;border:2px solid {GOLD};margin-right:6px'></span>Has a Foodary</div>"
-              "<div style='margin-top:3px'><span style='display:inline-block;width:8px;height:8px;"
-              f"border-radius:50%;background:{CHARGER};margin-right:8px'></span>Existing fast charger</div>"
-              "<div style='margin-top:6px;color:#777;font-size:10.5px'>Bigger circle = bigger demand gap</div></div>")
     m.get_root().html.add_child(folium.Element(legend))
 
     out = os.path.join(OUT, "ampcharge_map.html")
     m.save(out)
-    print(f"saved {out}  ({len(opp)} opportunity sites, {len(fast)} existing fast chargers)")
+    print(f"saved {out}")
+    print(f"  white space: {len(ws)}, contested: {(s['quadrant']=='CONTESTED').sum()}, "
+          f"existing fast chargers: {len(existing)}, planned: {len(planned)}")
 
 
 if __name__ == "__main__":

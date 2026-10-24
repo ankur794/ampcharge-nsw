@@ -5,7 +5,6 @@ __pycache__/
 venv/
 data/raw/*.csv
 data/processed/*.csv
-outputs/*.png
-outputs/*.html
 .DS_Store
 .ipynb_checkpoints/
+.pytest_cache/
