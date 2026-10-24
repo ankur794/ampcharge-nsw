@@ -16,8 +16,8 @@ The charging market clusters. New fast chargers are going in next to existing
 ones and close to the city, not where EV owners are short of charging.
 
 Scoring every Ampol site on **need** (EVs per existing fast charger) against
-**market attention** (how likely operators are to build nearby) finds 52
-"white space" sites: high need, little market interest. 14 of the top 20 sit in
+**market attention** (how likely operators are to build nearby) finds 48
+"white space" sites: high need, little market interest. 15 of the top 20 sit in
 one corridor, the **Central Coast, Lake Macquarie and Maitland**, along the M1
 between Sydney and Newcastle. The top site is **Rouse Hill**: The Hills has
 about **1,500 EVs per existing fast charger**, the highest in NSW.
@@ -91,20 +91,27 @@ Each Ampol site gets two scores, kept deliberately separate:
 
 - **Need:** EVs per existing fast charger in the site's LGA. Demand side only.
 - **Market attention:** the probability of a planned fast charger nearby, from
-  the proximity model in test 3 (scored out-of-fold, so no site is scored by a
-  model that saw it). Market side only.
+  the proximity model in test 3, scored out-of-fold so no site is scored by a
+  model that saw it, and averaged over 50 different random splits. Market side
+  only.
 
 Splitting each at the median gives four groups (440 sites with LGA data):
 
 | Group | Sites | Planned charger within 2 km | Has a Foodary |
 | --- | --- | --- | --- |
-| Contested (high need, high attention) | 165 | 25% | 48% |
-| **White space (high need, low attention)** | **52** | **12%** | 33% |
-| Saturated (low need, high attention) | 56 | 21% | 46% |
-| Low priority (low need, low attention) | 167 | 8% | 27% |
+| Contested (high need, high attention) | 164 | 26% | 48% |
+| **White space (high need, low attention)** | **53** (48 outside border areas) | **11%** | 36% |
+| Saturated (low need, high attention) | 57 | 23% | 42% |
+| Low priority (low need, low attention) | 166 | 8% | 28% |
 
 Need and attention are positively related (rank correlation 0.56): for the
 most part the market does go where need is. The white space is the exceptions.
+
+**How stable is it?** Re-running the attention model with 50 different random
+splits, 46 of the 48 white-space sites (border areas excluded) land in the
+white space in at least 80% of runs. Only 2 are borderline. Every site in the
+top 20 holds up in 90% or more of runs. The `white_space_freq` column in the
+output gives the share for each site.
 
 **Top 10 white-space sites:**
 
@@ -112,14 +119,16 @@ most part the market does go where need is. The white space is the exceptions.
 | --- | --- | --- | --- |
 | 1 | Ampol Rouse Hill | The Hills | 1,496 |
 | 2 | Caltex Peats Ridge | Central Coast | 706 |
-| 3 | Ampol Foodary Morisset | Lake Macquarie | 666 |
-| 4 | EG Ampol Umina | Central Coast | 706 |
-| 5 | Caltex Heddon Greta | Maitland | 601 |
-| 6 | EG Ampol Morisset | Lake Macquarie | 666 |
-| 7 | Ampol Foodary Wyong M1 (northbound) | Central Coast | 706 |
+| 3 | EG Ampol Morisset | Lake Macquarie | 666 |
+| 4 | Ampol Foodary Morisset | Lake Macquarie | 666 |
+| 5 | EG Ampol Umina | Central Coast | 706 |
+| 6 | Ampol Foodary Wyong M1 (southbound) | Central Coast | 706 |
+| 7 | Caltex Heddon Greta | Maitland | 601 |
 | 8 | Ampol Foodary Toronto | Lake Macquarie | 666 |
-| 9 | Ampol Foodary Wyong M1 (southbound) | Central Coast | 706 |
-| 10 | EG Ampol Menai | Sutherland | 842 |
+| 9 | Ampol Brunkerville | Maitland | 601 |
+| 10 | Ampol Foodary Wyong M1 (northbound) | Central Coast | 706 |
+
+All ten are white space in 100% of the 50 runs.
 
 Full ranking: `outputs/white_space_sites.csv` (column `white_space_rank`).
 The top 20 are numbered on the map.

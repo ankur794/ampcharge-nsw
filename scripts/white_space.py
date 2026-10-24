@@ -40,6 +40,8 @@ OUT = os.path.join(os.path.dirname(__file__), "..", "outputs")
 ATTENTION_COLS = ["log_nearest_existing", "existing_within_5km", "log_dist_cbd"]
 COLOURS = {"WHITE SPACE": "#d62828", "CONTESTED": "#f4a300",
            "SATURATED": "#5a7d9a", "LOW PRIORITY": "#b8b8b8"}
+N_RUNS = 50        # attention model re-run with 50 different random splits
+CORE_SHARE = 0.80  # "core" white space = white space in at least 80% of runs
 
 
 def main():
@@ -51,20 +53,34 @@ def main():
     s = s.merge(lga, on="lga", how="left")
     s["border_area"] = s["lga"].isin(BORDER_LGAS)
 
-    # ATTENTION: out-of-fold probability from the proximity-only model
-    y = s["planned_within_2km"].astype(int).values
-    model = make_pipeline(StandardScaler(), LogisticRegression(max_iter=1000))
-    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-    s["attention_prob"] = cross_val_predict(model, s[ATTENTION_COLS].values, y,
-                                            cv=cv, method="predict_proba")[:, 1]
-
     # NEED: EVs per existing fast charger in the LGA (only where we know the LGA)
     known = s["has_lga"].astype(bool) & s["fast_chargers"].notna()
     s["evs_per_fast_charger"] = np.where(known, s["ev_count"] / (s["fast_chargers"] + 1), np.nan)
+    k_idx = s.index[known]
+    need_pct = s.loc[k_idx, "evs_per_fast_charger"].rank(pct=True)
+
+    # ATTENTION: out-of-fold probability from the proximity-only model.
+    # One random split can push sites near the middle either way, so the model
+    # is re-run with N_RUNS different splits. Attention = the average, and we
+    # count how often each site lands in the white space.
+    y = s["planned_within_2km"].astype(int).values
+    X = s[ATTENTION_COLS].values
+    model = make_pipeline(StandardScaler(), LogisticRegression(max_iter=1000))
+    probs = np.zeros((N_RUNS, len(s)))
+    ws_hits = np.zeros(len(k_idx))
+    for run in range(N_RUNS):
+        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=run)
+        p = cross_val_predict(model, X, y, cv=cv, method="predict_proba")[:, 1]
+        probs[run] = p
+        att = pd.Series(p, index=s.index).loc[k_idx].rank(pct=True)
+        ws_hits += ((need_pct >= 0.5) & (att < 0.5)).values
+    s["attention_prob"] = probs.mean(axis=0)
 
     k = s[known].copy()
-    k["need_pct"] = k["evs_per_fast_charger"].rank(pct=True)
+    k["need_pct"] = need_pct
     k["attention_pct"] = k["attention_prob"].rank(pct=True)
+    k["white_space_freq"] = ws_hits / N_RUNS
+    k["core_white_space"] = k["white_space_freq"] >= CORE_SHARE
     hi_need = k["need_pct"] >= 0.5
     hi_att = k["attention_pct"] >= 0.5
     k["quadrant"] = np.select(
@@ -85,27 +101,38 @@ def main():
     q["foodary"] = (q["foodary"] * 100).round(0).astype(int).astype(str) + "%"
     print(q.to_string())
 
-    all_ws = k[k["quadrant"] == "WHITE SPACE"].sort_values("white_space_score", ascending=False)
+    # core sites first (stable across splits), then borderline, each by score
+    all_ws = k[k["quadrant"] == "WHITE SPACE"].sort_values(
+        ["core_white_space", "white_space_score"], ascending=[False, False])
     border_ws = all_ws[all_ws["border_area"]]
     ws = all_ws[~all_ws["border_area"]]
+    n_core = int(ws["core_white_space"].sum())
+    print(f"\nStability over {N_RUNS} re-runs of the attention model:")
+    print(f"  white-space sites (excluding border): {len(ws)}")
+    print(f"  core (white space in >= {CORE_SHARE:.0%} of runs): {n_core}")
+    print(f"  borderline (flips depending on the split): {len(ws) - n_core}")
+    ever = int(((k['white_space_freq'] > 0) & ~k['border_area']).sum())
+    print(f"  sites that were white space in at least one run: {ever}")
     if len(border_ws):
         print(f"\nWhite-space sites in border areas, left out of the ranking "
               f"(cross-border chargers not in the data): {len(border_ws)}")
         print("  " + ", ".join(f"{n} ({l.title()})" for n, l in zip(border_ws["name"], border_ws["lga"])))
     cols = ["site_id", "name", "lga", "evs_per_fast_charger", "nearest_existing_km",
-            "need_pct", "attention_pct", "has_foodary"]
+            "need_pct", "attention_pct", "white_space_freq", "has_foodary"]
     show = ws.head(20)[cols].copy()
+    show["white_space_freq"] = (show["white_space_freq"] * 100).round(0).astype(int).astype(str) + "%"
     show["evs_per_fast_charger"] = show["evs_per_fast_charger"].round(0).astype(int)
     show["nearest_existing_km"] = show["nearest_existing_km"].round(1)
     show[["need_pct", "attention_pct"]] = show[["need_pct", "attention_pct"]].round(2)
     show["has_foodary"] = show["has_foodary"].astype(bool)
-    print("\n=== Top 20 WHITE SPACE sites (high need, low market attention) ===")
+    print("\n=== Top 20 WHITE SPACE sites (core first; white_space_freq = share of runs) ===")
     print(show.to_string(index=False))
 
     k["white_space_rank"] = np.nan
     k.loc[ws.index, "white_space_rank"] = np.arange(1, len(ws) + 1)
-    out = s.merge(k[["site_id", "need_pct", "attention_pct", "quadrant",
-                     "white_space_score", "white_space_rank"]], on="site_id", how="left")
+    out = s.merge(k[["site_id", "need_pct", "attention_pct", "quadrant", "white_space_score",
+                     "white_space_freq", "core_white_space", "white_space_rank"]],
+                  on="site_id", how="left")
     out["quadrant"] = out["quadrant"].fillna("UNKNOWN (no LGA)")
     out.to_csv(os.path.join(OUT, "white_space_sites.csv"), index=False)
 

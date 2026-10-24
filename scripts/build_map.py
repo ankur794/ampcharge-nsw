@@ -39,7 +39,10 @@ def popup_html(s, rank=None):
         f"<b>{head}{s['name']}</b><br>"
         f"<span style='color:#666'>{str(s.get('lga','')).title()} &middot; {s['quadrant'].title()}</span>"
         "<hr style='margin:5px 0'>"
-        f"Need percentile: <b>{pct(s.get('need_pct'))}</b><br>"
+        + (f"White space in <b>{s['white_space_freq']:.0%}</b> of 50 model runs"
+           f"{' (core)' if s['white_space_freq'] >= 0.8 else ' (borderline)'}<br>"
+           if s.get("quadrant") == "WHITE SPACE" and pd.notna(s.get("white_space_freq")) else "")
+        + f"Need percentile: <b>{pct(s.get('need_pct'))}</b><br>"
         f"Market attention percentile: <b>{pct(s.get('attention_pct'))}</b><br>"
         f"EVs per existing fast charger (LGA): <b>{evpc}</b><br>"
         f"Nearest existing fast charger: <b>{s['nearest_existing_km']:.1f} km</b><br>"
